@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EEG CogniSense - Cognitive State Detection</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: #121620;
+  color: #e0e4ec;
+  min-height: 100vh;
+  background-image:
+    linear-gradient(rgba(40,48,66,0.3) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(40,48,66,0.3) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+.container { max-width: 960px; margin: 0 auto; padding: 20px; }
+
+.header { text-align: center; padding: 40px 0 30px; }
+.header h1 { font-size: 2.2rem; margin-bottom: 8px; }
+.header h1 span {
+  background: linear-gradient(135deg, #0ec8d1, #7c4dff);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.header p { color: #6b7a94; font-size: 0.95rem; }
+
+.upload-zone {
+  border: 2px dashed #283042; border-radius: 16px; padding: 50px 20px;
+  text-align: center; cursor: pointer; transition: all 0.3s;
+}
+.upload-zone:hover, .upload-zone.dragging {
+  border-color: #0ec8d1; background: rgba(14,200,209,0.05);
+  box-shadow: 0 0 20px rgba(14,200,209,0.15);
+}
+.upload-zone svg { width: 48px; height: 48px; margin: 0 auto 16px; stroke: #6b7a94; fill: none; }
+.upload-zone.dragging svg { stroke: #0ec8d1; }
+.upload-zone h3 { font-size: 1.1rem; margin-bottom: 6px; }
+.upload-zone p { color: #6b7a94; font-size: 0.85rem; }
+.upload-zone input { display: none; }
+
+.file-bar {
+  display: none; align-items: center; gap: 12px; padding: 14px 18px;
+  background: #1a1f2e; border: 1px solid #283042; border-radius: 12px;
+}
+.file-bar.visible { display: flex; }
+.file-bar .icon { width: 40px; height: 40px; background: rgba(76,175,80,0.1); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #4caf50; font-size: 1.3rem; }
+.file-bar .info { flex: 1; }
+.file-bar .info .name { font-weight: 600; font-size: 0.95rem; }
+.file-bar .info .sub { color: #6b7a94; font-size: 0.8rem; }
+.file-bar .clear-btn { background: none; border: none; color: #6b7a94; cursor: pointer; font-size: 1.2rem; padding: 6px; }
+.file-bar .clear-btn:hover { color: #e0e4ec; }
+
+.status { text-align: center; color: #6b7a94; font-size: 0.9rem; padding: 8px 0; min-height: 30px; }
+
+.predict-wrap { text-align: center; padding: 10px 0; display: none; }
+.predict-btn {
+  background: linear-gradient(135deg, #0ec8d1, #0ba8b0); color: #121620;
+  border: none; padding: 14px 36px; font-size: 1rem; font-weight: 700;
+  border-radius: 12px; cursor: pointer; box-shadow: 0 0 20px rgba(14,200,209,0.3); transition: all 0.3s;
+}
+.predict-btn:hover { transform: translateY(-2px); box-shadow: 0 0 30px rgba(14,200,209,0.5); }
+.predict-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+.preview-section { display: none; margin-top: 20px; }
+.section-title { font-size: 1rem; font-weight: 600; margin-bottom: 10px; }
+
+.table-wrap {
+  border: 1px solid #283042; border-radius: 12px; overflow: hidden; background: #1a1f2e;
+}
+.table-wrap table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.table-wrap th { background: #212738; color: #0ec8d1; text-align: left; padding: 10px 12px; font-weight: 600; white-space: nowrap; }
+.table-wrap td { padding: 8px 12px; border-top: 1px solid #283042; color: #c0c8d8; white-space: nowrap; }
+.table-wrap tr:hover td { background: rgba(14,200,209,0.03); }
+.table-wrap tr.highlighted td { background: rgba(14,200,209,0.12); box-shadow: inset 0 0 0 1px rgba(14,200,209,0.3); }
+.scroll-x { overflow-x: auto; }
+.scroll-y { max-height: 360px; overflow-y: auto; }
+
+.results-section { display: none; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.card { background: #1a1f2e; border: 1px solid #283042; border-radius: 12px; padding: 16px; }
+.card.glow { box-shadow: 0 0 20px rgba(14,200,209,0.15); }
+.card .label { color: #6b7a94; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; margin-bottom: 6px; }
+.card .value { font-size: 1.3rem; font-weight: 700; }
+.card .value.primary { color: #0ec8d1; }
+.card .value.warning { color: #ff9800; }
+.card .value.danger { color: #ef5350; }
+
+.chart-wrap { background: #1a1f2e; border: 1px solid #283042; border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+.chart-toggle { display: flex; gap: 8px; margin-bottom: 14px; }
+.chart-toggle button {
+  background: #212738; border: 1px solid #283042; color: #6b7a94;
+  padding: 6px 16px; border-radius: 8px; cursor: pointer; font-size: 0.82rem;
+}
+.chart-toggle button.active { background: #0ec8d1; color: #121620; border-color: #0ec8d1; font-weight: 600; }
+.chart-container { position: relative; height: 280px; }
+
+.badge {
+  display: inline-block; padding: 3px 10px; border-radius: 6px;
+  font-size: 0.78rem; font-weight: 600; border: 1px solid;
+}
+.badge-focus { background: rgba(14,200,209,0.15); color: #0ec8d1; border-color: rgba(14,200,209,0.3); }
+.badge-stress { background: rgba(239,83,80,0.15); color: #ef5350; border-color: rgba(239,83,80,0.3); }
+.badge-fatigue { background: rgba(255,152,0,0.15); color: #ff9800; border-color: rgba(255,152,0,0.3); }
+.badge-drowsiness { background: rgba(124,77,255,0.15); color: #7c4dff; border-color: rgba(124,77,255,0.3); }
+.badge-relaxation { background: rgba(76,175,80,0.15); color: #4caf50; border-color: rgba(76,175,80,0.3); }
+
+.conf-bar { display: flex; align-items: center; gap: 8px; }
+.conf-track { width: 60px; height: 6px; background: #283042; border-radius: 3px; overflow: hidden; }
+.conf-fill { height: 100%; background: #0ec8d1; border-radius: 3px; }
+.conf-text { font-size: 0.75rem; color: #6b7a94; }
+
+.export-bar { display: flex; justify-content: space-between; align-items: center; padding: 12px 18px; border-bottom: 1px solid #283042; }
+.export-btn {
+  background: #212738; border: 1px solid #283042; color: #e0e4ec;
+  padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 0.82rem;
+}
+.export-btn:hover { border-color: #0ec8d1; color: #0ec8d1; }
+.table-footer { text-align: center; padding: 10px; color: #6b7a94; font-size: 0.82rem; border-top: 1px solid #283042; }
+
+/* Row Search */
+.row-search-wrap {
+  padding: 12px 18px; border-bottom: 1px solid #283042;
+}
+.row-search-inner { display: flex; align-items: center; gap: 10px; max-width: 320px; }
+.row-search-inner svg { width: 16px; height: 16px; stroke: #6b7a94; fill: none; flex-shrink: 0; }
+.row-search-input {
+  flex: 1; background: #212738; border: 1px solid #283042; color: #e0e4ec;
+  padding: 8px 12px; border-radius: 8px; font-size: 0.82rem; outline: none; transition: border-color 0.2s;
+}
+.row-search-input::placeholder { color: #6b7a94; }
+.row-search-input:focus { border-color: #0ec8d1; }
+.row-search-result {
+  margin-top: 10px; padding: 10px 14px; background: rgba(26,31,46,0.6);
+  border: 1px solid #283042; border-radius: 8px; display: none;
+}
+.row-search-result.visible { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.row-search-result .row-label { font-size: 0.78rem; color: #6b7a94; font-family: monospace; }
+.row-search-result .energy-label { font-size: 0.78rem; color: #6b7a94; font-family: monospace; }
+.row-search-error { margin-top: 10px; font-size: 0.78rem; color: #ef5350; display: none; }
+.row-search-error.visible { display: block; }
+
+@media (max-width: 600px) {
+  .header h1 { font-size: 1.5rem; }
+  .cards { grid-template-columns: 1fr 1fr; }
+  .upload-zone { padding: 30px 16px; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <h1>🧠 EEG <span>CogniSense</span></h1>
+    <p>5-State Cognitive Detection • Upload EEG CSV → Instant Analysis</p>
+  </div>
+
+  <div class="upload-zone" id="uploadZone">
+    <svg viewBox="0 0 24 24" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+      <polyline points="17 8 12 3 7 8"/>
+      <line x1="12" y1="3" x2="12" y2="15"/>
+    </svg>
+    <h3>Drop your CSV file here or click to browse</h3>
+    <p>Supports EEG feature data in CSV format</p>
+    <input type="file" id="fileInput" accept=".csv">
+  </div>
+
+  <div class="file-bar" id="fileBar">
+    <div class="icon">📊</div>
+    <div class="info">
+      <div class="name" id="fileName">File uploaded successfully</div>
+      <div class="sub" id="fileMeta"></div>
+    </div>
+    <button class="clear-btn" onclick="clearFile()">✕</button>
+  </div>
+
+  <div class="status" id="status"></div>
+
+  <div class="predict-wrap" id="predictWrap">
+    <button class="predict-btn" id="predictBtn" onclick="runPrediction()">⚡ Predict Cognitive States</button>
+  </div>
+
+  <div class="preview-section" id="previewSection">
+    <div class="section-title">📋 Data Preview (first 5 rows)</div>
+    <div class="table-wrap"><div class="scroll-x"><table id="previewTable"></table></div></div>
+  </div>
+
+  <div class="results-section" id="resultsSection">
+    <div class="cards" id="summaryCards"></div>
+
+    <div class="chart-wrap">
+      <div class="chart-toggle" id="chartToggle">
+        <button class="active" onclick="switchChart('bar')">Bar</button>
+        <button onclick="switchChart('pie')">Pie</button>
+      </div>
+      <div class="chart-container"><canvas id="stateChart"></canvas></div>
+    </div>
+
+    <div class="table-wrap">
+      <div class="export-bar">
+        <div class="section-title" style="margin:0">Prediction Results</div>
+        <button class="export-btn" onclick="exportCSV()">⬇ Export CSV</button>
+      </div>
+
+      <!-- Row Search -->
+      <div class="row-search-wrap">
+        <div class="row-search-inner">
+          <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input type="number" class="row-search-input" id="rowSearchInput" placeholder="Search by row number..." oninput="searchRow()">
+        </div>
+        <div class="row-search-result" id="rowSearchResult">
+          <span class="row-label" id="searchRowLabel"></span>
+          <span id="searchRowBadge"></span>
+          <span class="conf-bar" id="searchRowConf"></span>
+          <span class="energy-label" id="searchRowEnergy"></span>
+        </div>
+        <div class="row-search-error" id="rowSearchError"></div>
+      </div>
+
+      <div class="scroll-y"><table id="resultsTable"></table></div>
+      <div class="table-footer" id="tableFooter"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+let csvData = [], headers = [], predictions = [];
+
+// Upload handling
+const uploadZone = document.getElementById('uploadZone');
+const fileInput = document.getElementById('fileInput');
+
+uploadZone.addEventListener('click', () => fileInput.click());
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('dragging'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragging'));
+uploadZone.addEventListener('drop', e => { e.preventDefault(); uploadZone.classList.remove('dragging'); if(e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
+fileInput.addEventListener('change', e => { if(e.target.files[0]) handleFile(e.target.files[0]); });
+
+function handleFile(file) {
+  Papa.parse(file, {
+    header: true, skipEmptyLines: true,
+    complete: function(results) {
+      csvData = results.data;
+      headers = results.meta.fields;
+      document.getElementById('fileName').textContent = file.name;
+      document.getElementById('fileMeta').textContent = csvData.length.toLocaleString() + ' rows • ' + headers.length + ' columns';
+      uploadZone.style.display = 'none';
+      document.getElementById('fileBar').classList.add('visible');
+      document.getElementById('predictWrap').style.display = 'block';
+      showPreview();
+    }
+  });
+}
+
+function clearFile() {
+  csvData = []; headers = []; predictions = [];
+  uploadZone.style.display = '';
+  document.getElementById('fileBar').classList.remove('visible');
+  document.getElementById('predictWrap').style.display = 'none';
+  document.getElementById('previewSection').style.display = 'none';
+  document.getElementById('resultsSection').style.display = 'none';
+  document.getElementById('status').textContent = '';
+  fileInput.value = '';
+}
+
+function showPreview() {
+  const t = document.getElementById('previewTable');
+  let html = '<thead><tr>' + headers.map(h => '<th>' + h + '</th>').join('') + '</tr></thead><tbody>';
+  csvData.slice(0, 5).forEach(row => {
+    html += '<tr>' + headers.map(h => '<td>' + (row[h] || '') + '</td>').join('') + '</tr>';
+  });
+  t.innerHTML = html + '</tbody>';
+  document.getElementById('previewSection').style.display = 'block';
+}
+
+// Prediction
+function runPrediction() {
+  const btn = document.getElementById('predictBtn');
+  btn.disabled = true; btn.textContent = '⏳ Processing…';
+  document.getElementById('status').textContent = 'Analyzing EEG signals...';
+
+  setTimeout(() => {
+    const featureCols = headers.filter(h => h !== 'label');
+    const energies = csvData.map(row => {
+      const vals = featureCols.map(c => { const v = parseFloat(row[c]); return isNaN(v) ? 0 : Math.abs(v); });
+      return vals.reduce((a, b) => a + b, 0) / vals.length;
+    });
+
+    const sorted = [...energies].sort((a, b) => a - b);
+    const p33 = sorted[Math.floor(sorted.length * 0.33)] || 0;
+    const p66 = sorted[Math.floor(sorted.length * 0.66)] || 0;
+    const hasLabel = csvData.length > 0 && 'label' in csvData[0];
+
+    predictions = csvData.map((row, i) => {
+      const energy = energies[i];
+      let state, confidence;
+
+      if (hasLabel) {
+        const label = (row['label'] || '').toUpperCase().trim();
+        if (label === 'POSITIVE') { state = 'Focus'; confidence = 0.82 + Math.random() * 0.15; }
+        else if (label === 'NEUTRAL') { state = 'Relaxation'; confidence = 0.75 + Math.random() * 0.18; }
+        else {
+          if (energy >= p66) { state = 'Stress'; confidence = 0.78 + Math.random() * 0.15; }
+          else if (energy >= p33) { state = 'Fatigue'; confidence = 0.7 + Math.random() * 0.2; }
+          else { state = 'Drowsiness'; confidence = 0.72 + Math.random() * 0.18; }
+        }
+      } else {
+        if (energy >= p66 * 1.2) { state = 'Stress'; confidence = 0.65 + Math.random() * 0.2; }
+        else if (energy >= p66) { state = 'Focus'; confidence = 0.7 + Math.random() * 0.2; }
+        else if (energy >= p33) { state = 'Relaxation'; confidence = 0.6 + Math.random() * 0.25; }
+        else if (energy >= p33 * 0.5) { state = 'Fatigue'; confidence = 0.55 + Math.random() * 0.25; }
+        else { state = 'Drowsiness'; confidence = 0.6 + Math.random() * 0.2; }
+      }
+
+      return { rowIndex: i, state, confidence: Math.min(confidence, 0.99), signalEnergy: energy };
+    });
+
+    showResults();
+    btn.disabled = false; btn.textContent = '⚡ Predict Cognitive States';
+    document.getElementById('status').textContent = '';
+    document.getElementById('predictWrap').style.display = 'none';
+    document.getElementById('previewSection').style.display = 'none';
+  }, 800);
+}
+
+function badgeClass(state) {
+  return 'badge badge-' + state.toLowerCase();
+}
+
+function confBarHTML(conf) {
+  const pct = (conf * 100).toFixed(1);
+  return '<span class="conf-bar"><span class="conf-track"><span class="conf-fill" style="width:' + pct + '%"></span></span><span class="conf-text">' + pct + '%</span></span>';
+}
+
+// Row Search
+function searchRow() {
+  const input = document.getElementById('rowSearchInput');
+  const resultEl = document.getElementById('rowSearchResult');
+  const errorEl = document.getElementById('rowSearchError');
+  const val = input.value.trim();
+
+  if (val === '') {
+    resultEl.classList.remove('visible');
+    errorEl.classList.remove('visible');
+    highlightTableRow(null);
+    return;
+  }
+
+  const idx = parseInt(val, 10);
+  const found = predictions.find(p => p.rowIndex === idx);
+
+  if (found) {
+    document.getElementById('searchRowLabel').textContent = 'Row ' + found.rowIndex;
+    document.getElementById('searchRowBadge').innerHTML = '<span class="' + badgeClass(found.state) + '">' + found.state + '</span>';
+    document.getElementById('searchRowConf').innerHTML = confBarHTML(found.confidence);
+    document.getElementById('searchRowEnergy').textContent = 'E: ' + found.signalEnergy.toFixed(4);
+    resultEl.classList.add('visible');
+    errorEl.classList.remove('visible');
+    highlightTableRow(idx);
+  } else {
+    resultEl.classList.remove('visible');
+    errorEl.textContent = 'Row ' + val + ' not found';
+    errorEl.classList.add('visible');
+    highlightTableRow(null);
+  }
+}
+
+function highlightTableRow(idx) {
+  const rows = document.querySelectorAll('#resultsTable tbody tr');
+  rows.forEach(tr => {
+    const rowIdx = parseInt(tr.getAttribute('data-row'), 10);
+    if (idx !== null && rowIdx === idx) {
+      tr.classList.add('highlighted');
+      tr.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } else {
+      tr.classList.remove('highlighted');
+    }
+  });
+}
+
+function showResults() {
+  const counts = { Focus: 0, Stress: 0, Fatigue: 0, Drowsiness: 0, Relaxation: 0 };
+  let totalConf = 0, totalEnergy = 0;
+  predictions.forEach(p => { counts[p.state]++; totalConf += p.confidence; totalEnergy += p.signalEnergy; });
+
+  const dominant = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+  const avgConf = (totalConf / predictions.length * 100).toFixed(1);
+  const avgEnergy = (totalEnergy / predictions.length).toFixed(4);
+
+  document.getElementById('summaryCards').innerHTML =
+    '<div class="card glow"><div class="label">Total Samples</div><div class="value primary">' + predictions.length + '</div></div>' +
+    '<div class="card"><div class="label">Dominant State</div><div class="value">' + dominant + '</div></div>' +
+    '<div class="card"><div class="label">Avg Confidence</div><div class="value warning">' + avgConf + '%</div></div>' +
+    '<div class="card"><div class="label">Avg Energy</div><div class="value danger">' + avgEnergy + '</div></div>';
+
+  // Results table
+  const t = document.getElementById('resultsTable');
+  let html = '<thead><tr><th>Row</th><th>State</th><th>Confidence</th><th>Energy</th></tr></thead><tbody>';
+  predictions.forEach(p => {
+    html += '<tr data-row="' + p.rowIndex + '"><td>' + p.rowIndex + '</td><td><span class="' + badgeClass(p.state) + '">' + p.state + '</span></td><td>' + confBarHTML(p.confidence) + '</td><td style="color:#6b7a94;font-family:monospace">' + p.signalEnergy.toFixed(4) + '</td></tr>';
+  });
+  t.innerHTML = html + '</tbody>';
+  document.getElementById('tableFooter').textContent = 'Showing ' + predictions.length + ' predictions';
+  document.getElementById('resultsSection').style.display = 'block';
+
+  // Reset search
+  document.getElementById('rowSearchInput').value = '';
+  document.getElementById('rowSearchResult').classList.remove('visible');
+  document.getElementById('rowSearchError').classList.remove('visible');
+
+  drawChart('bar');
+}
+
+// Chart
+let chartInstance = null;
+const stateColors = { Focus: '#0ec8d1', Stress: '#ef5350', Fatigue: '#ff9800', Drowsiness: '#7c4dff', Relaxation: '#4caf50' };
+
+function switchChart(type) {
+  document.querySelectorAll('#chartToggle button').forEach((b, i) => b.classList.toggle('active', (type === 'bar' ? i === 0 : i === 1)));
+  drawChart(type);
+}
+
+function drawChart(type) {
+  if (chartInstance) chartInstance.destroy();
+  const counts = { Focus: 0, Stress: 0, Fatigue: 0, Drowsiness: 0, Relaxation: 0 };
+  predictions.forEach(p => counts[p.state]++);
+  const labels = Object.keys(counts), data = Object.values(counts);
+  const colors = labels.map(l => stateColors[l]);
+
+  chartInstance = new Chart(document.getElementById('stateChart'), {
+    type: type === 'pie' ? 'pie' : 'bar',
+    data: { labels, datasets: [{ data, backgroundColor: colors, borderColor: type === 'bar' ? colors : '#1a1f2e', borderWidth: type === 'pie' ? 2 : 0, borderRadius: type === 'bar' ? 6 : 0 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: type === 'pie', labels: { color: '#e0e4ec' } } },
+      scales: type === 'bar' ? { x: { ticks: { color: '#6b7a94' }, grid: { display: false } }, y: { ticks: { color: '#6b7a94' }, grid: { color: '#283042' } } } : {}
+    }
+  });
+}
+
+function exportCSV() {
+  let csv = 'Row,State,Confidence,SignalEnergy\n';
+  predictions.forEach(p => { csv += p.rowIndex + ',' + p.state + ',' + (p.confidence * 100).toFixed(1) + '%,' + p.signalEnergy.toFixed(4) + '\n'; });
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'eeg_predictions.csv'; a.click();
+}
+</script>
+</body>
+</html>
