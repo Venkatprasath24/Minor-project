@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>EEG Cognitive State</title>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body {
+            font-family: Arial;
+            background: #121620;
+            color: #e0e4ec;
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            padding: 30px;
+        }
+
+        .header h1 span {
+            color: #0ec8d1;
+        }
+
+        .upload-zone {
+            border: 2px dashed #283042;
+            border-radius: 12px;
+            padding: 50px;
+            text-align: center;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+
+        button {
+            background: #0ec8d1;
+            border: none;
+            padding: 12px 30px;
+            margin-top: 20px;
+            font-size: 16px;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #0ba8b0;
+        }
+
+        .table-wrap {
+            margin-top: 20px;
+            border: 1px solid #283042;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th,
+        td {
+            padding: 10px;
+            border-bottom: 1px solid #283042;
+            text-align: left;
+        }
+
+        .badge {
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+        }
+
+        .badge-focus {
+            background: #0ec8d133;
+            color: #0ec8d1
+        }
+
+        .badge-stress {
+            background: #ef535033;
+            color: #ef5350
+        }
+
+        .badge-fatigue {
+            background: #ff980033;
+            color: #ff9800
+        }
+
+        .badge-drowsiness {
+            background: #7c4dff33;
+            color: #7c4dff
+        }
+
+        .badge-relaxation {
+            background: #4caf5033;
+            color: #4caf50
+        }
+
+        .chart-box {
+            margin-top: 30px;
+            background: #1a1f2e;
+            padding: 20px;
+            border-radius: 10px;
+        }
+
+        .search-box {
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        input {
+            padding: 10px;
+            border-radius: 6px;
+            border: none;
+            width: 200px;
+        }
+    </style>
+</head>
+
+<body><
+
+    <div class="container">
+
+        <div class="header">
+            <h1>🧠 EEG <span>Cognitive State</span></h1>
+            <p>Upload EEG CSV → Instant Analysis</p>
+        </div>
+
+        <div class="upload-zone" onclick="document.getElementById('fileInput').click()">
+            <h3>Drop CSV file here or click to upload</h3>
+            <input type="file" id="fileInput" accept=".csv" style="display:none">
+        </div>
+
+        <div style="text-align:center">
+            <button onclick="runPrediction()">Predict Cognitive State</button>
+        </div>
+
+        <!-- SEARCH BOX -->
+        <div class="search-box">
+            <h3>Search Row Prediction</h3>
+            <input type="number" id="rowNumber" placeholder="Enter Row Number">
+            <button onclick="searchRow()">Search</button>
+        </div>
+
+        <div class="table-wrap">
+            <table id="resultsTable"></table>
+        </div>
+
+        <div class="chart-box">
+            <canvas id="chart"></canvas>
+        </div>
+
+    </div>
+
+   <script>
+
+let predictions = [];
+let chart = null;
+
+// SEND FILE DIRECTLY (NO PapaParse, NO CSV rebuild)
+function runPrediction() {
+
+    let file = document.getElementById("fileInput").files[0];
+
+    if (!file) {
+        alert("Upload CSV first");
+        return;
+    }
+
+    let formData = new FormData();
+    formData.append("file", file);
+
+    fetch("/predict", {
+        method: "POST",
+        body: formData
+    })
+    .then(res => res.json())
+    .then(data => {
+
+        if (data.error) {
+            alert("Error: " + data.error);
+            return;
+        }
+
+        predictions = data;
+
+        console.log("Predictions:", predictions); // debug
+
+        drawChart();
+
+    })
+    .catch(err => {
+        console.error(err);
+        alert("Backend not running or error occurred");
+    });
+
+}
+
+
+// SEARCH ROW (unchanged logic)
+function searchRow() {
+
+    let row = document.getElementById("rowNumber").value;
+
+    let p = predictions[row];
+
+    if (!p) {
+        alert("Row not found");
+        return;
+    }
+
+    let html = "<tr><th>Row</th><th>State</th><th>Confidence</th><th>Energy</th></tr>";
+
+    html += "<tr>" +
+        "<td>" + row + "</td>" +
+        "<td>" + p.state + "</td>" +
+        "<td>" + (p.confidence * 100).toFixed(1) + "%</td>" +
+        "<td>" + p.energy.toFixed(4) + "</td>" +
+        "</tr>";
+
+    document.getElementById("resultsTable").innerHTML = html;
+
+}
+
+
+// DRAW CHART (5 STATES ONLY)
+function drawChart() {
+
+    let counts = {
+        Focus: 0,
+        Stress: 0,
+        Fatigue: 0,
+        Drowsiness: 0,
+        Relaxation: 0
+    };
+
+    predictions.forEach(p => {
+        if (counts[p.state] !== undefined) {
+            counts[p.state]++;
+        }
+    });
+
+    if (chart) {
+        chart.destroy();
+    }
+
+    chart = new Chart(document.getElementById("chart"), {
+
+        type: "bar",
+
+        data: {
+            labels: Object.keys(counts),
+            datasets: [{
+                label: "Cognitive States",
+                data: Object.values(counts),
+                backgroundColor: [
+                    "#00c2c7",
+                    "#ff4d4d",
+                    "#ffa500",
+                    "#8a2be2",
+                    "#4caf50"
+                ]
+            }]
+        },
+
+        options: {
+            scales: {
+                y: { beginAtZero: true }
+            }
+        }
+
+    });
+
+}
+
+</script>
+</body>
+
+</html>

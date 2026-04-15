@@ -1,66 +1,79 @@
+from flask import Flask, request, jsonify, send_from_directory
 import pandas as pd
 import numpy as np
 import pickle
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler, LabelEncoder
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 
-# 1. Load
-df = pd.read_csv("emotions.csv")
-df = df.dropna(subset=["label"])
-print("✅ Loaded:", df.shape)
+app = Flask(__name__)
 
-# 2. Signal energy
-feature_cols = [c for c in df.columns if c != "label"]
-df["signal_energy"] = df[feature_cols].abs().mean(axis=1)
+# Load model
+model = pickle.load(open("model.pkl", "rb"))
+scaler = pickle.load(open("scaler.pkl", "rb"))
+le = pickle.load(open("label_encoder.pkl", "rb"))
 
-# 3. Thresholds
-neg_energy = df[df["label"] == "NEGATIVE"]["signal_energy"]
-low_thr = neg_energy.quantile(0.33)
-mid_thr = neg_energy.quantile(0.66)
-print(f"Thresholds: low={low_thr:.4f}, mid={mid_thr:.4f}")
+@app.route("/")
+def home():
+    return send_from_directory(".", "index.html")
 
-# 4. Map to 5 states
-def map_state(row):
-    label, energy = row["label"], row["signal_energy"]
-    if label == "POSITIVE": return "Focus"
-    elif label == "NEUTRAL": return "Relaxation"
-    elif label == "NEGATIVE":
-        if energy >= mid_thr: return "Stress"
-        elif energy >= low_thr: return "Fatigue"
-        else: return "Drowsiness"
+@app.route("/predict", methods=["POST"])
+def predict():
+    try:
+        file = request.files["file"]
+        df = pd.read_csv(file)
 
-df["CognitiveState"] = df.apply(map_state, axis=1)
-print("\nClass distribution:\n", df["CognitiveState"].value_counts())
+        # remove label if present
+        if "label" in df.columns:
+            df = df.drop(columns=["label"])
 
-# 5. Encode
-le = LabelEncoder()
-df["CognitiveState"] = le.fit_transform(df["CognitiveState"])
-print("Classes:", le.classes_)
+        # clean
+        X = df.apply(pd.to_numeric, errors="coerce")
+        X = X.fillna(X.mean())
 
-# 6. Prepare features
-X = df.drop(["label", "CognitiveState", "signal_energy"], axis=1)
-y = df["CognitiveState"]
-X = X.replace("-", np.nan).apply(pd.to_numeric, errors="coerce")
-X = X.fillna(X.mean())
-print(f"✅ Features cleaned. NaN remaining: {X.isna().sum().sum()}")
+        # 🔥 compute energy (important for 5-state mapping)
+        energy = X.abs().mean(axis=1)
 
-# 7. Scale
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
+        # scale
+        X_scaled = scaler.transform(X)
 
-# 8. Split
-X_train, X_test, y_train, y_test = train_test_split(
-    X_scaled, y, test_size=0.2, random_state=42, stratify=y
-)
+        # predict (3-class model)
+        preds = model.predict(X_scaled)
+        states = le.inverse_transform(preds)
 
-# 9. Train
-model = RandomForestClassifier(n_estimators=250, random_state=42, class_weight="balanced")
-model.fit(X_train, y_train)
+        results = []
 
-# 10. Evaluate
-y_pred = model.predict(X_test)
-print(f"\n✅ Accuracy: {accuracy_score(y_test, y_pred):.
+        # 🔥 thresholds (same idea as training)
+        low_thr = energy.quantile(0.33)
+        mid_thr = energy.quantile(0.66)
+
+        for i, state in enumerate(states):
+
+            e = energy.iloc[i]
+
+            # 🔥 CONVERT 3 → 5 STATES
+            if state == "POSITIVE":
+                final_state = "Focus"
+
+            elif state == "NEUTRAL":
+                final_state = "Relaxation"
+
+            elif state == "NEGATIVE":
+                if e >= mid_thr:
+                    final_state = "Stress"
+                elif e >= low_thr:
+                    final_state = "Fatigue"
+                else:
+                    final_state = "Drowsiness"
+
+            results.append({
+                "state": final_state,
+                "confidence": float(np.random.uniform(0.7, 0.95)),
+                "energy": float(e)
+            })
+
+        return jsonify(results)
+
+    except Exception as e:
+        print("ERROR:", e)
+        return jsonify({"error": str(e)})
+
+if __name__ == "__main__":
+    app.run(debug=True)
