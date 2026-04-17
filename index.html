@@ -181,7 +181,7 @@ function runPrediction() {
     let formData = new FormData();
     formData.append("file", file);
 
-    fetch("https://minor-project-production.up.railway.app/predict", {
+    fetch("https://minor-project-production-3fbb.up.railway.app", {
         method: "POST",
         body: formData
     })
