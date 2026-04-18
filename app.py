@@ -2,9 +2,10 @@ from flask import Flask, request, jsonify, send_from_directory
 import pandas as pd
 import numpy as np
 import pickle
+import os
 from flask_cors import CORS
 
-app = Flask(__name__, static_folder='.')
+app = Flask(__name__)   # ✅ safer for deployment
 CORS(app)
 
 # Load model files
@@ -17,12 +18,10 @@ le = pickle.load(open("label_encoder.pkl", "rb"))
 def test():
     return "Backend is working"
 
-
 # Serve frontend
 @app.route("/")
 def home():
-    return send_from_directory(".", "index.html")
-
+    return send_from_directory(".", "index.html")  # make sure index.html exists
 
 # Prediction API
 @app.route("/predict", methods=["POST"])
@@ -34,7 +33,7 @@ def predict():
         file = request.files["file"]
         df = pd.read_csv(file)
 
-        print("Incoming columns:", df.columns)  # 🔥 DEBUG
+        print("Incoming columns:", df.columns)
 
         if df.empty:
             return jsonify({"error": "Empty CSV file"}), 400
@@ -47,12 +46,12 @@ def predict():
         X = df.apply(pd.to_numeric, errors="coerce")
         X = X.fillna(X.mean())
 
-        # 🔥 VERY IMPORTANT FIX (COLUMN MATCH)
+        # Match training columns
         try:
             expected_cols = scaler.feature_names_in_
             X = X.reindex(columns=expected_cols, fill_value=0)
         except:
-            pass  # if not available, skip
+            pass
 
         # Compute energy
         energy = X.abs().mean(axis=1)
@@ -100,5 +99,7 @@ def predict():
         return jsonify({"error": str(e)}), 500
 
 
+# ✅ IMPORTANT FOR RAILWAY
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    port = int(os.environ.get("PORT", 5000))  # 🔥 dynamic port fix
+    app.run(host="0.0.0.0", port=port)
