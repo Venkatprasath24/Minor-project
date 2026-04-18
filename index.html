@@ -163,12 +163,11 @@
 
     </div>
 
-   <script>
+  <script>
 
 let predictions = [];
 let chart = null;
 
-// SEND FILE DIRECTLY (NO PapaParse, NO CSV rebuild)
 function runPrediction() {
 
     let file = document.getElementById("fileInput").files[0];
@@ -181,11 +180,17 @@ function runPrediction() {
     let formData = new FormData();
     formData.append("file", file);
 
-    fetch("https://minor-project-production-3fbb.up.railway.app", {
+    // ✅ FIXED URL (VERY IMPORTANT)
+    fetch("https://minor-project-production-3fbb.up.railway.app/predict", {
         method: "POST",
         body: formData
     })
-    .then(res => res.json())
+    .then(res => {
+        if (!res.ok) {
+            throw new Error("Server error: " + res.status);
+        }
+        return res.json();
+    })
     .then(data => {
 
         if (data.error) {
@@ -195,10 +200,9 @@ function runPrediction() {
 
         predictions = data;
 
-        console.log("Predictions:", predictions); // debug
+        console.log("Predictions:", predictions);
 
         drawChart();
-
     })
     .catch(err => {
         console.error(err);
@@ -208,7 +212,7 @@ function runPrediction() {
 }
 
 
-// SEARCH ROW (unchanged logic)
+// SEARCH ROW
 function searchRow() {
 
     let row = document.getElementById("rowNumber").value;
@@ -230,11 +234,10 @@ function searchRow() {
         "</tr>";
 
     document.getElementById("resultsTable").innerHTML = html;
-
 }
 
 
-// DRAW CHART (5 STATES ONLY)
+// DRAW CHART
 function drawChart() {
 
     let counts = {
@@ -256,9 +259,7 @@ function drawChart() {
     }
 
     chart = new Chart(document.getElementById("chart"), {
-
         type: "bar",
-
         data: {
             labels: Object.keys(counts),
             datasets: [{
@@ -273,18 +274,12 @@ function drawChart() {
                 ]
             }]
         },
-
         options: {
             scales: {
                 y: { beginAtZero: true }
             }
         }
-
     });
-
 }
 
 </script>
-</body>
-
-</html>
