@@ -101,5 +101,5 @@ def predict():
 
 # ✅ IMPORTANT FOR RAILWAY
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))  # 🔥 dynamic port fix
+    port = int(os.environ.get("PORT", 8080))  # 🔥 dynamic port fix
     app.run(host="0.0.0.0", port=port)
